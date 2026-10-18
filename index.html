@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#142d27">
+<title>Fütterungssteuerung</title>
+<style>
+:root{--ink:#142d27;--green:#245b43;--pale:#dcebe2;--bg:#f4f7f4;--line:#dce5df;--muted:#66776f;--red:#a12d25}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#1e2e27;font:16px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.shell{max-width:720px;margin:auto;padding:14px 13px 36px}header{background:var(--ink);color:#fff;padding:20px;border-radius:20px}
+.brand{display:flex;align-items:center;gap:12px}.logo{width:44px;height:44px;display:grid;place-items:center;border-radius:13px;background:#315a4b;font-size:24px}h1{font-size:21px;margin:0}h2{font-size:18px;margin:0 0 5px}h3{font-size:15px;margin:0}.sub{font-size:13px;color:#c8d9d0;margin-top:4px}.status{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid #49665b;padding-top:13px;margin-top:16px}.pill,.badge{font-size:11px;font-weight:800;border-radius:99px;padding:5px 9px;background:#fff2d6;color:#80560e}.card{background:#fff;border:1px solid var(--line);border-radius:17px;padding:16px;margin:12px 0}.muted{font-size:13px;color:var(--muted)}.row{display:flex;align-items:center;gap:11px}.grow{flex:1;min-width:0}.divider{height:1px;background:var(--line);margin:14px 0}label{display:block;font-size:13px;font-weight:700;margin:12px 0 5px}input{width:100%;border:1px solid #ccd8d0;border-radius:11px;padding:12px;font:inherit;background:white;color:#1e2e27}button{cursor:pointer}button:disabled{opacity:.55}.primary,.secondary,.danger{width:100%;padding:13px 14px;border-radius:12px;font:inherit;font-weight:750;margin-top:10px}.primary{border:0;background:var(--green);color:#fff}.secondary{border:1px solid #cbd8cf;background:#fff;color:#274a38}.danger{border:1px solid #e5c9c6;background:#fff;color:var(--red)}.hidden{display:none!important}.notice{border:1px solid #ead8b3;background:#fff8e9;color:#70521b;padding:12px;border-radius:12px;font-size:13px;margin-top:12px}.error{color:var(--red);font-size:13px;margin-top:8px}.device{border:1px solid var(--line);border-radius:13px;padding:13px;margin-top:10px}.device.selected{border-color:#78a68a;background:#f3f8f4}.smallbtn{border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 10px;color:#294737;font-weight:700}nav{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:13px 0}nav button{border:0;border-radius:12px;padding:11px 3px;background:#e8eeea;color:#42564c;font-weight:700}nav button.active{background:var(--pale);color:var(--green)}footer{text-align:center;color:var(--muted);font-size:12px;padding:12px}
+</style>
+</head>
+<body>
+<main class="shell">
+<header>
+  <div class="brand"><div class="logo">🌱</div><div><h1>Fütterungssteuerung</h1><div class="sub">Admin · Mehrgeräte-Steuerung</div></div></div>
+  <div class="status"><div><strong id="headerUser">Nicht angemeldet</strong><div class="sub" id="headerDevice">Bitte anmelden</div></div><span class="pill" id="connectionBadge">Verbinde …</span></div>
+</header>
+
+<section id="loginSection"><div class="card">
+  <h2>Admin-Anmeldung</h2><div class="muted">Anmeldung mit dem Benutzer, den du in Supabase angelegt hast.</div>
+  <label for="email">Admin-E-Mail</label><input id="email" type="email" autocomplete="username" placeholder="Deine Admin-E-Mail">
+  <label for="password">Passwort</label><input id="password" type="password" autocomplete="current-password" placeholder="Dein Passwort">
+  <button id="loginBtn" class="primary" type="button">Anmelden</button><div id="loginError" class="error" role="alert"></div>
+  <div class="notice">Die Hardware ist noch nicht verbunden. Der Startknopf unten führt nur eine Demo aus.</div>
+</div></section>
+
+<div id="app" class="hidden">
+  <nav><button class="active" data-page="control" type="button">Steuerung</button><button data-page="devices" type="button">Automaten</button><button data-page="account" type="button">Konto</button></nav>
+  <section id="controlPage"><div class="card">
+    <div class="row"><div class="grow"><h2>Manuelle Fütterung</h2><div id="selectedDeviceName" class="muted">Bitte zuerst einen Automaten auswählen.</div></div><span class="badge">DEMO</span></div>
+    <p class="muted">Start mit 10 Sekunden Vorlauf. Es wird kein echter Befehl gesendet.</p><div class="divider"></div>
+    <div class="row"><div class="grow"><h3>Streudauer</h3><div class="muted">1–99 Sekunden</div></div><strong id="durationLabel">8 s</strong></div>
+    <div class="row" style="margin-top:10px"><button id="minus" class="smallbtn" type="button">−</button><input id="duration" type="number" min="1" max="99" value="8" inputmode="numeric" aria-label="Streudauer"><button id="plus" class="smallbtn" type="button">+</button></div>
+    <div id="durationError" class="error"></div><button id="startBtn" class="primary" type="button">Manuellen Start simulieren</button><div id="runNotice" class="notice hidden"></div>
+  </div></section>
+  <section id="devicesPage" class="hidden">
+    <div class="card"><h2>Meine Automaten</h2><div id="deviceList"></div><div id="deviceError" class="error"></div></div>
+    <div class="card"><h2>Automat registrieren</h2><label for="deviceName">Name</label><input id="deviceName" maxlength="50" placeholder="z. B. Teich Nord"><label for="deviceCode">Gerätekennung</label><input id="deviceCode" maxlength="40" placeholder="z. B. FTR-001"><button id="addDevice" class="primary" type="button">Automat speichern</button></div>
+  </section>
+  <section id="accountPage" class="hidden"><div class="card"><h2>Admin-Konto</h2><div class="muted" id="accountEmail"></div><button id="refreshBtn" class="secondary" type="button">Daten neu laden</button><button id="logoutBtn" class="danger" type="button">Abmelden</button></div><div class="notice">GitHub Pages hostet die Webseite. Supabase übernimmt Anmeldung und Datenbank. Die Motorsteuerung ist noch nicht verbunden.</div></section>
+</div>
+<footer>Fütterungssteuerung · Admin-Prototyp · Noch keine Hardwareverbindung</footer>
+</main>
+
+<!-- Supabase-Bibliothek: muss vor dem eigenen Skript geladen werden -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+"use strict";
+
+// Supabase-Projektdaten
+const SUPABASE_URL = "https://sbkubavasbazvmhfkdll.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNia3ViYXZhc2JhenZtaGZrZGxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIyNjk5MzAsImV4cCI6MjEwNzg0NTkzMH0.KHENw_rWkWby6Lqp8DACtn1vj8SppsdoYQjhcA9V-nM";
+
+const $ = (id) => document.getElementById(id);
+const showError = (id, message) => { const el = $(id); if (el) el.textContent = message || ""; };
+let db = null, currentUser = null, selectedDeviceId = null, devices = [];
+
+function setLoggedIn(on) {
+  $("loginSection").classList.toggle("hidden", on);
+  $("app").classList.toggle("hidden", !on);
+  $("headerUser").textContent = on ? "Admin" : "Nicht angemeldet";
+  $("connectionBadge").textContent = on ? "BACKEND VERBUNDEN" : "NICHT VERBUNDEN";
+}
+function showPage(page) {
+  ["control","devices","account"].forEach(p => $(p+"Page").classList.toggle("hidden", p !== page));
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
+}
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => showPage(b.dataset.page)));
+
+function updateSelected() {
+  const d = devices.find(x => x.id === selectedDeviceId);
+  $("selectedDeviceName").textContent = d ? `${d.name} · ID ${d.device_code}` : "Bitte zuerst einen Automaten auswählen.";
+  $("headerDevice").textContent = d ? d.name : "Kein Automat ausgewählt";
+}
+function renderDevices() {
+  const box = $("deviceList"); box.replaceChildren();
+  if (!devices.length) { const p = document.createElement("p"); p.className = "muted"; p.textContent = "Noch keine Automaten registriert."; box.append(p); }
+  for (const d of devices) {
+    const card = document.createElement("div"); card.className = "device" + (d.id === selectedDeviceId ? " selected" : "");
+    const row = document.createElement("div"); row.className = "row";
+    const info = document.createElement("div"); info.className = "grow";
+    const title = document.createElement("h3"); title.textContent = d.name;
+    const meta = document.createElement("div"); meta.className = "muted"; meta.textContent = "ID: " + d.device_code + " · Hardware nicht verbunden";
+    info.append(title, meta);
+    const choose = document.createElement("button"); choose.type = "button"; choose.className = "smallbtn"; choose.textContent = d.id === selectedDeviceId ? "Ausgewählt" : "Auswählen";
+    choose.addEventListener("click", () => { selectedDeviceId = d.id; renderDevices(); updateSelected(); });
+    row.append(info, choose); card.append(row);
+    const del = document.createElement("button"); del.type = "button"; del.className = "danger"; del.textContent = "Automat löschen";
+    del.addEventListener("click", async () => {
+      if (!confirm(`Automat „${d.name}“ löschen?`)) return;
+      const { error } = await db.from("devices").delete().eq("id", d.id);
+      if (error) { showError("deviceError", "Löschen fehlgeschlagen: " + error.message); return; }
+      devices = devices.filter(x => x.id !== d.id); if (selectedDeviceId === d.id) selectedDeviceId = devices[0]?.id || null;
+      renderDevices(); updateSelected();
+    });
+    card.append(del); box.append(card);
+  }
+  updateSelected();
+}
+async function loadDevices() {
+  if (!db || !currentUser) return;
+  const { data, error } = await db.from("devices").select("id,name,device_code,created_at").order("created_at", { ascending: false });
+  if (error) { console.error(error); showError("deviceError", "Automaten konnten nicht geladen werden: " + error.message); return; }
+  devices = data || [];
+  if (!devices.some(d => d.id === selectedDeviceId)) selectedDeviceId = devices[0]?.id || null;
+  renderDevices();
+}
+async function afterLogin(user) {
+  currentUser = user; setLoggedIn(true); $("accountEmail").textContent = user.email || "";
+  await loadDevices();
+}
+
+$("loginBtn").addEventListener("click", async () => {
+  showError("loginError", "");
+  if (!db) { showError("loginError", "Supabase konnte nicht geladen werden. Prüfe die Internetverbindung und lade die Seite neu."); return; }
+  const email = $("email").value.trim(), password = $("password").value;
+  if (!email || !password) { showError("loginError", "Bitte Admin-E-Mail und Passwort eingeben."); return; }
+  $("loginBtn").disabled = true; $("loginBtn").textContent = "Prüfe Anmeldung …";
+  try {
+    const { data, error } = await db.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    await afterLogin(data.user);
+  } catch (err) {
+    console.error("Anmeldung fehlgeschlagen:", err);
+    showError("loginError", "Anmeldung fehlgeschlagen: " + (err.message || "Verbindung oder Zugangsdaten prüfen."));
+  } finally {
+    $("loginBtn").disabled = false; $("loginBtn").textContent = "Anmelden";
+  }
+});
+$("logoutBtn").addEventListener("click", async () => {
+  if (db) await db.auth.signOut();
+  currentUser = null; devices = []; selectedDeviceId = null; setLoggedIn(false); $("password").value = "";
+});
+$("refreshBtn").addEventListener("click", loadDevices);
+
+$("addDevice").addEventListener("click", async () => {
+  showError("deviceError", "");
+  if (!db || !currentUser) { showError("deviceError", "Bitte zuerst anmelden."); return; }
+  const name = $("deviceName").value.trim(), code = $("deviceCode").value.trim().toUpperCase();
+  if (!name) { showError("deviceError", "Bitte einen Namen eingeben."); return; }
+  if (!/^[A-Z0-9_-]{3,40}$/.test(code)) { showError("deviceError", "Gerätekennung: 3–40 Zeichen, A–Z, Zahlen, - oder _."); return; }
+  $("addDevice").disabled = true;
+  try {
+    // owner_id ist für die RLS-Regel aus der SQL-Einrichtung erforderlich.
+    const { data, error } = await db.from("devices").insert({ owner_id: currentUser.id, name, device_code: code })
+      .select("id,name,device_code,created_at").single();
+    if (error) throw error;
+    devices.unshift(data); selectedDeviceId = data.id; $("deviceName").value = ""; $("deviceCode").value = ""; renderDevices();
+  } catch (err) {
+    console.error(err); showError("deviceError", "Speichern fehlgeschlagen: " + (err.message || "Datenbankregeln prüfen."));
+  } finally { $("addDevice").disabled = false; }
+});
+
+function validDuration() { const s = $("duration").value, n = Number(s); return s.trim() !== "" && Number.isInteger(n) && n >= 1 && n <= 99; }
+function updateDuration() {
+  const ok = validDuration(); $("durationError").textContent = ok ? "" : "Bitte eine ganze Zahl von 1 bis 99 eingeben.";
+  $("durationLabel").textContent = ok ? Number($("duration").value) + " s" : "–";
+}
+$("duration").addEventListener("input", updateDuration);
+$("minus").addEventListener("click", () => { if (validDuration()) $("duration").value = Math.max(1, Number($("duration").value)-1); updateDuration(); });
+$("plus").addEventListener("click", () => { if (validDuration()) $("duration").value = Math.min(99, Number($("duration").value)+1); updateDuration(); });
+$("startBtn").addEventListener("click", () => {
+  if (!devices.some(d => d.id === selectedDeviceId)) { $("runNotice").textContent = "Bitte zuerst einen Automaten registrieren und auswählen."; $("runNotice").classList.remove("hidden"); return; }
+  if (!validDuration()) return;
+  $("runNotice").textContent = `DEMO: ${devices.find(d=>d.id===selectedDeviceId).name} würde nach 10 Sekunden Vorlauf ${Number($("duration").value)} Sekunden laufen. Es wurde kein Befehl gesendet.`;
+  $("runNotice").classList.remove("hidden");
+});
+
+// Fehler werden sichtbar angezeigt, statt die Seite still scheitern zu lassen.
+try {
+  if (!window.supabase || !window.supabase.createClient) throw new Error("Supabase-Bibliothek wurde nicht geladen.");
+  if (!SUPABASE_URL.startsWith("https://") || !SUPABASE_ANON_KEY || SUPABASE_ANON_KEY.includes("HIER_")) throw new Error("Supabase URL oder Public Key fehlt.");
+  db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  $("connectionBadge").textContent = "SUPABASE BEREIT";
+  db.auth.getSession().then(({data, error}) => {
+    if (error) throw error;
+    if (data.session) return afterLogin(data.session.user);
+    setLoggedIn(false);
+  }).catch(err => { console.error(err); showError("loginError", "Supabase-Fehler: " + (err.message || "Bitte Verbindung prüfen.")); });
+} catch (err) {
+  console.error(err); setLoggedIn(false);
+  showError("loginError", "Initialisierungsfehler: " + (err.message || "Bitte URL und Public Key prüfen."));
+}
+</script>
+</body>
+</html>
