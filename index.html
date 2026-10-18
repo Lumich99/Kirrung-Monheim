@@ -35,6 +35,26 @@
     <div class="row"><div class="grow"><h3>Streudauer</h3><div class="muted">1–99 Sekunden</div></div><strong id="durationLabel">8 s</strong></div>
     <div class="row" style="margin-top:10px"><button id="minus" class="smallbtn" type="button">−</button><input id="duration" type="number" min="1" max="99" value="8" inputmode="numeric" aria-label="Streudauer"><button id="plus" class="smallbtn" type="button">+</button></div>
     <div id="durationError" class="error"></div><button id="startBtn" class="primary" type="button">Manuellen Start simulieren</button><div id="runNotice" class="notice hidden"></div>
+  </div>
+  <div class="card" id="autoModeCard">
+    <div class="row"><div class="grow"><h2>Automodus</h2><div class="muted">Automatische Fütterungszeiten einstellen</div><div id="autoModeDeviceLabel" class="muted">Gilt für: keinen Automaten</div></div><span class="badge">ZEITPLAN</span></div>
+    <label for="autoModeEnabled">Automodus</label>
+    <select id="autoModeEnabled" style="width:100%;border:1px solid #ccd8d0;border-radius:11px;padding:12px;font:inherit;background:white;color:#1e2e27">
+      <option value="no">Nein</option><option value="yes">Ja</option>
+    </select>
+    <label for="autoTime">Fütterungszeit</label><input id="autoTime" type="time" value="07:00">
+    <label>Wochentage</label>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px">
+      <label style="display:flex;align-items:center;gap:8px;margin:0"><input class="auto-day" type="checkbox" value="1" style="width:auto"> Montag</label>
+      <label style="display:flex;align-items:center;gap:8px;margin:0"><input class="auto-day" type="checkbox" value="2" style="width:auto"> Dienstag</label>
+      <label style="display:flex;align-items:center;gap:8px;margin:0"><input class="auto-day" type="checkbox" value="3" style="width:auto"> Mittwoch</label>
+      <label style="display:flex;align-items:center;gap:8px;margin:0"><input class="auto-day" type="checkbox" value="4" style="width:auto"> Donnerstag</label>
+      <label style="display:flex;align-items:center;gap:8px;margin:0"><input class="auto-day" type="checkbox" value="5" style="width:auto"> Freitag</label>
+      <label style="display:flex;align-items:center;gap:8px;margin:0"><input class="auto-day" type="checkbox" value="6" style="width:auto"> Samstag</label>
+      <label style="display:flex;align-items:center;gap:8px;margin:0"><input class="auto-day" type="checkbox" value="0" style="width:auto"> Sonntag</label>
+    </div>
+    <button id="saveAutoMode" class="primary" type="button">Automodus speichern</button>
+    <div id="autoModeNotice" class="notice" role="status">Der Zeitplan wird hier gespeichert. Automatische Motorsteuerung ist noch nicht verbunden.</div>
   </div></section>
   <section id="devicesPage" class="hidden">
     <div class="card"><h2>Meine Automaten</h2><div id="deviceList"></div><div id="deviceError" class="error"></div></div>
@@ -57,8 +77,28 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const $ = (id) => document.getElementById(id);
 const showError = (id, message) => { const el = $(id); if (el) el.textContent = message || ""; };
 let db = null, currentUser = null, selectedDeviceId = null, devices = [];
+const AUTO_LOGOUT_MS = 5 * 60 * 1000;
+let inactivityTimer = null;
+function resetInactivityTimer() {
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  if (!currentUser) return;
+  inactivityTimer = setTimeout(async () => {
+    try { if (db) await db.auth.signOut(); } catch (err) { console.error("Automatische Abmeldung:", err); }
+    currentUser = null; devices = []; selectedDeviceId = null;
+    setLoggedIn(false);
+    showError("loginError", "Du wurdest wegen 5 Minuten Inaktivität automatisch abgemeldet.");
+  }, AUTO_LOGOUT_MS);
+}
+function stopInactivityTimer() {
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  inactivityTimer = null;
+}
+["click", "keydown", "pointerdown", "touchstart", "scroll"].forEach(eventName => {
+  document.addEventListener(eventName, resetInactivityTimer, { passive: true });
+});
 
 function setLoggedIn(on) {
+  if (on) resetInactivityTimer(); else stopInactivityTimer();
   $("loginSection").classList.toggle("hidden", on);
   $("app").classList.toggle("hidden", !on);
   $("headerUser").textContent = on ? "Admin" : "Nicht angemeldet";
@@ -74,6 +114,8 @@ function updateSelected() {
   const d = devices.find(x => x.id === selectedDeviceId);
   $("selectedDeviceName").textContent = d ? `${d.name} · ID ${d.device_code}` : "Bitte zuerst einen Automaten auswählen.";
   $("headerDevice").textContent = d ? d.name : "Kein Automat ausgewählt";
+  const autoLabel = $("autoModeDeviceLabel");
+  if (autoLabel) autoLabel.textContent = d ? `Gilt nur für: ${d.name}` : "Gilt für: keinen Automaten";
 }
 function renderDevices() {
   const box = $("deviceList"); box.replaceChildren();
@@ -86,7 +128,7 @@ function renderDevices() {
     const meta = document.createElement("div"); meta.className = "muted"; meta.textContent = "ID: " + d.device_code + " · Hardware nicht verbunden";
     info.append(title, meta);
     const choose = document.createElement("button"); choose.type = "button"; choose.className = "smallbtn"; choose.textContent = d.id === selectedDeviceId ? "Ausgewählt" : "Auswählen";
-    choose.addEventListener("click", () => { selectedDeviceId = d.id; renderDevices(); updateSelected(); });
+    choose.addEventListener("click", async () => { selectedDeviceId = d.id; renderDevices(); updateSelected(); await loadAutoMode(); });
     row.append(info, choose); card.append(row);
     const del = document.createElement("button"); del.type = "button"; del.className = "danger"; del.textContent = "Automat löschen";
     del.addEventListener("click", async () => {
@@ -94,7 +136,7 @@ function renderDevices() {
       const { error } = await db.from("devices").delete().eq("id", d.id);
       if (error) { showError("deviceError", "Löschen fehlgeschlagen: " + error.message); return; }
       devices = devices.filter(x => x.id !== d.id); if (selectedDeviceId === d.id) selectedDeviceId = devices[0]?.id || null;
-      renderDevices(); updateSelected();
+      renderDevices(); updateSelected(); await loadAutoMode();
     });
     card.append(del); box.append(card);
   }
@@ -107,6 +149,7 @@ async function loadDevices() {
   devices = data || [];
   if (!devices.some(d => d.id === selectedDeviceId)) selectedDeviceId = devices[0]?.id || null;
   renderDevices();
+  await loadAutoMode();
 }
 async function afterLogin(user) {
   currentUser = user; setLoggedIn(true); $("accountEmail").textContent = user.email || "";
@@ -148,7 +191,7 @@ $("addDevice").addEventListener("click", async () => {
     const { data, error } = await db.from("devices").insert({ owner_id: currentUser.id, name, device_code: code })
       .select("id,name,device_code,created_at").single();
     if (error) throw error;
-    devices.unshift(data); selectedDeviceId = data.id; $("deviceName").value = ""; $("deviceCode").value = ""; renderDevices();
+    devices.unshift(data); selectedDeviceId = data.id; $("deviceName").value = ""; $("deviceCode").value = ""; renderDevices(); await loadAutoMode();
   } catch (err) {
     console.error(err); showError("deviceError", "Speichern fehlgeschlagen: " + (err.message || "Datenbankregeln prüfen."));
   } finally { $("addDevice").disabled = false; }
@@ -167,6 +210,72 @@ $("startBtn").addEventListener("click", () => {
   if (!validDuration()) return;
   $("runNotice").textContent = `DEMO: ${devices.find(d=>d.id===selectedDeviceId).name} würde nach 10 Sekunden Vorlauf ${Number($("duration").value)} Sekunden laufen. Es wurde kein Befehl gesendet.`;
   $("runNotice").classList.remove("hidden");
+});
+
+// Automodus-Zeitplan wird in Supabase pro ausgewähltem Gerät gespeichert.
+function updateAutoModeNotice(config, message) {
+  if (message) { $("autoModeNotice").textContent = message; return; }
+  const dayNames = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+  const days = (config.days || []).slice().sort((a,b) => a-b).map(d => dayNames[d]).join(", ") || "keine Tage ausgewählt";
+  $("autoModeNotice").textContent = (config.enabled ? "Automodus: JA" : "Automodus: NEIN") + " · " + (config.time || "07:00") + " · " + days + ". In Supabase gespeichert. Die automatische Motorsteuerung ist noch nicht verbunden.";
+}
+function setAutoModeForm(config) {
+  $("autoModeEnabled").value = config.enabled ? "yes" : "no";
+  $("autoTime").value = config.time || "07:00";
+  document.querySelectorAll(".auto-day").forEach(el => { el.checked = Array.isArray(config.days) && config.days.includes(Number(el.value)); });
+}
+async function loadAutoMode() {
+  if (!db || !currentUser) return;
+  if (!selectedDeviceId) {
+    setAutoModeForm({enabled:false,time:"07:00",days:[]});
+    updateAutoModeNotice(null, "Bitte zuerst einen Automaten registrieren und auswählen.");
+    return;
+  }
+  $("saveAutoMode").disabled = true;
+  updateAutoModeNotice(null, "Automodus-Einstellungen werden aus Supabase geladen …");
+  try {
+    const { data, error } = await db.from("auto_schedules")
+      .select("enabled,feeding_time,weekdays")
+      .eq("device_id", selectedDeviceId).maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      setAutoModeForm({enabled:false,time:"07:00",days:[]});
+      updateAutoModeNotice(null, "Für diesen Automaten ist noch kein Zeitplan in Supabase gespeichert.");
+    } else {
+      const time = typeof data.feeding_time === "string" ? data.feeding_time.slice(0,5) : "07:00";
+      const config = { enabled: !!data.enabled, time, days: Array.isArray(data.weekdays) ? data.weekdays.map(Number) : [] };
+      setAutoModeForm(config); updateAutoModeNotice(config);
+    }
+  } catch (err) {
+    console.error("Automodus laden:", err);
+    updateAutoModeNotice(null, "Laden fehlgeschlagen: " + (err.message || "Bitte Tabelle und Supabase-Berechtigungen prüfen."));
+  } finally { $("saveAutoMode").disabled = false; }
+}
+$("saveAutoMode").addEventListener("click", async () => {
+  if (!db || !currentUser) { updateAutoModeNotice(null, "Bitte zuerst anmelden."); return; }
+  if (!selectedDeviceId) { updateAutoModeNotice(null, "Bitte zuerst einen Automaten registrieren und auswählen."); return; }
+  const days = Array.from(document.querySelectorAll(".auto-day:checked"), el => Number(el.value));
+  const config = { enabled: $("autoModeEnabled").value === "yes", time: $("autoTime").value || "07:00", days };
+  if (config.enabled && days.length === 0) {
+    updateAutoModeNotice(null, "Bitte mindestens einen Wochentag auswählen."); return;
+  }
+  $("saveAutoMode").disabled = true;
+  updateAutoModeNotice(null, "Speichere in Supabase …");
+  try {
+    const { error } = await db.from("auto_schedules").upsert({
+      owner_id: currentUser.id,
+      device_id: selectedDeviceId,
+      enabled: config.enabled,
+      feeding_time: config.time,
+      weekdays: days,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "device_id" });
+    if (error) throw error;
+    updateAutoModeNotice(config);
+  } catch (err) {
+    console.error("Automodus speichern:", err);
+    updateAutoModeNotice(null, "Speichern fehlgeschlagen: " + (err.message || "Bitte SQL-Tabelle und Supabase-Berechtigungen einrichten."));
+  } finally { $("saveAutoMode").disabled = false; }
 });
 
 // Fehler werden sichtbar angezeigt, statt die Seite still scheitern zu lassen.
